@@ -3,7 +3,9 @@
 
 This script downloads a local copy of the FCC ULS database dump ZIP files, extracts them, and loads them 
 into an SQLite database, if the database doesn't already exist locally.
-It then queries the database currenty either by City or ZIP code(s) and the Radio Service Code(s) and outputs the frequency results formatted for importing into HAM radios.
+It then searches the database, currenty either by City or ZIP code(s) and the Radio Service Code(s), and outputs the frequency results formatted for importing into HAM radios and/or scanners.
+
+I primarily use it in combination with the PWS (Public Works) service code argument, for obtaining Police/Fire/EMS frequencies for quickly importing into my radio based on a location. 
 
 Generically formated results are displayed to stdout.
 
@@ -25,7 +27,7 @@ USAGE
 -----
     gen_fcc_uls_radio_config.py --help
 
-Download and load the FCC ULS database dump files specified and return frequencies from NYC for the PW service (Public Works - Police, Fire, EMS, etc). A resulting CSV file will be generated for a TIDRADIO TD-H8 : 
+Download and load the FCC ULS database dump files specified and return frequencies from NYC for the PW service code (Public Works - Police, Fire, EMS, etc). A resulting CSV file will be generated for a TIDRADIO TD-H8 : 
 
     gen_fcc_uls_radio_config.py --city "New York" -s PW -zf l_LMcomm.zip,l_LMpriv.zip,l_LMbcast.zip,l_coast.zip,l_micro.zip,l_paging.zip -r tdh8
 
