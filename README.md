@@ -5,7 +5,7 @@ This script downloads a local copy of the FCC ULS database dump ZIP files, extra
 into an SQLite database, if the database doesn't already exist locally.
 It then searches the database, currenty either by City or ZIP code(s) and the Radio Service Code(s), and outputs the frequency results formatted for importing into HAM radios and/or scanners.
 
-I primarily use it in combination with the PWS (Public Works) service code argument, for obtaining Police/Fire/EMS frequencies for quickly importing into my radio based on a location. 
+I primarily use it in combination with the PW (Public Works) service code argument, for obtaining Police/Fire/EMS frequencies for quickly importing into my radio based on a location. 
 
 Generically formated results are displayed to stdout.
 
