@@ -24,9 +24,15 @@ USAGE
 -----
     gen_fcc_uls_radio_config.py --help
 
-Download and load the FCC ULS database dump files specified and return frequencies from NYC for the PW service (Public Works - Police, Fire, EMS, etc). A resulting CSV file will be generated for a TIDRADIO TD-H8.
+Download and load the FCC ULS database dump files specified and return frequencies from NYC for the PW service (Public Works - Police, Fire, EMS, etc). A resulting CSV file will be generated for a TIDRADIO TD-H8 : 
 
     gen_fcc_uls_radio_config.py --city "New York" -s PW -zf l_LMcomm.zip,l_LMpriv.zip,l_LMbcast.zip,l_coast.zip,l_micro.zip,l_paging.zip -r tdh8
+
+Example stdout generic result lines (not from the CSV file generated) :
+
+	Freq: 487.53750000 MHz, Entity: NEW YORK CITY TRANSIT AUTHORITY, Location: NEW YORK, NY 10004, Service: PW, Eligibility: APPLICANT IS THE NEW YORK CITY TRANSIT AUTHORITY WHICH IS A GOVERNMENTAL ENTITY CHARGED WITH SPECIFIC DUTIES. RADIOS WILL BE USED FOR OFFICIAL ACTIVITIES OF THE LICENSEE., Status: A
+	Freq: 487.56250000 MHz, Entity: NEW YORK CITY POLICE DEPARTMENT, Location: NEW YORK, NY 10038, Service: PW, Eligibility: POLICE DEPARTMENT PROVIDING SAFETY, PROTECTION OF LIFE AND PROPERTY, Status: A
+	Freq: 487.66250000 MHz, Entity: NEW YORK CITY POLICE DEPARTMENT, Location: NEW YORK, NY 10038, Service: PW, Eligibility: POLICE DEPARTMENT PROVIDING SAFETY, PROTECTION OF LIFE AND PROPERTY, Status: A
 
 INSTALLING
 -----------------------
