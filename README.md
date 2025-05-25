@@ -19,5 +19,5 @@ This will download and load the FCC ULS ZIP database dump files specified and re
 INSTALLING
 -----------------------
 
-Some PIP modules are probaly not installed by default. Install them with PIP as needed.
+Some pip modules are probably not installed by default. Install them with pip as needed.
 To be updated...
