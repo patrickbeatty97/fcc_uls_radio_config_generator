@@ -5,11 +5,12 @@ This script downloads a local copy of the FCC ULS database dump ZIP files, extra
 into an SQLite database, if the database doesn't already exist locally.
 It then queries the database currenty either by City or ZIP code(s) and the Radio Service Code(s) and outputs the frequency results formatted for importing into HAM radios.
 
+Generically formated results are displayed to stdout.
+
 The resulting config is output to a CSV file for the specified radio model.
 Currently, only TIDRADIO TD-H8s are supported. 
 The radio model can be specified with the -r / --radio argument.
 List supported radio models with the -lr / --list-radios argument. 
-If no radio model is specified, generically formated results are display to stdout.
 
 The default database downloaded is Land Mobile - Private.
 Multiple databases can be specified with the -zf / --zip-files argument.
