@@ -12,13 +12,13 @@ List supported radio models with the -lr / --list-radios argument.
 If no radio model is specified, generically formated results are display to stdout.
 
 The default database downloaded is Land Mobile - Private.
-Multiple databases can be specified with the -zf / --zipfiles argument.
-List supported databases with the -lz / --listzips argument.
+Multiple databases can be specified with the -zf / --zip-files argument.
+List supported databases with the -lz / --list-zips argument.
 
 NOTE:
   All of the FCC ULS database dump zip files take up between 6 and 7GB my last check.
   The first time the script runs to download and load them it can take 10 minutes are longer.
-  Future runs use the local existing data unless the --cc / --clearcache option is specified.  
+  Future runs use the local existing data unless the --cc / --clear-cache option is specified.  
 
 USAGE
 -----
