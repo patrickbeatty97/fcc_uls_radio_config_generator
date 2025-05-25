@@ -8,7 +8,7 @@ It then queries the database currenty either by City or ZIP code(s) and the Radi
 The resulting config is output to a CSV file for the specified radio model.
 Currently, only TIDRADIO TD-H8s are supported. 
 The radio model can be specified with the -r / --radio argument.
-List supported radio models with the -lr / --listradios argument. 
+List supported radio models with the -lr / --list-radios argument. 
 If no radio model is specified, generically formated results are display to stdout.
 
 The default database downloaded is Land Mobile - Private.
