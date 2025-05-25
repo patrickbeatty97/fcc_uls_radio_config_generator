@@ -8,6 +8,11 @@ The default database downloaded is Land Mobile - Private.
 Multiple databases can be specified with the -zf flag.
 List supported databases with the -lz flag.
 
+NOTE:
+  All of the FCC ULS database dump zip files take up between 6 and 7GB my last check.
+  The first time the script runs to download and load them it can take 10 minutes are longer.
+  Future runs use the local existing data unless the --cc / --clearcache option is specified.  
+
 USAGE
 -----
     gen_fcc_uls_radio_config.py --help
