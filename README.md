@@ -20,7 +20,7 @@ List supported databases with the -lz / --list-zips argument.
 
 **NOTE:**
   All of the FCC ULS database dump zip files the script utilizes total up to around 6 or 7GB last I checked.\
-  The first time the script runs to download and load them it can take 10 minutes or longer, depending on your internet speed, the FCC's internet speed, your computer, and how many files are requested.\
+  The first time the script runs to download and load them it can take 10 minutes or longer, depending on your internet speed, the FCC's internet speed, your computer, and how many files are requested, to name a few factors.\
   Future runs use the local existing data unless the --cc / --clear-cache option is specified.
 
 USAGE
@@ -40,5 +40,7 @@ Example stdout generic result lines (not from the CSV file generated) :
 INSTALLING
 -----------------------
 
-Some pip modules are probably not installed by default. Install them with pip as needed.
+Some pip modules are probably not installed by default.\
+Install them with pip as needed.
+
 To be updated...
