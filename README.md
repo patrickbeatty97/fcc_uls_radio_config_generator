@@ -10,13 +10,13 @@ I primarily use it in combination with the PW (Public Works) service code argume
 Generically formated results are displayed to stdout.
 
 The resulting config is output to a CSV file for the specified radio model.\
-The radio model can be specified with the -r / --radio argument.\
-List supported radio models with the -lr / --list-radios argument.\
+The radio model can be specified with the **-r / --radio** argument.\
+List supported radio models with the **-lr / --list-radios** argument.\
 Currently, only TIDRADIO TD-H8s are supported.
 
 The default database(s) downloaded is Land Mobile - Private.\
-Multiple databases can be specified with the -zf / --zip-files argument.\
-List supported databases with the -lz / --list-zips argument.
+Multiple databases can be specified with the **-zf / --zip-files** argument.\
+List supported databases with the **-lz / --list-zips** argument.
 
 **NOTE:**
   All of the FCC ULS database dump zip files the script utilizes total up to around 6 or 7GB last I checked.\
