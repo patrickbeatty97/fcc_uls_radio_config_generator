@@ -11,7 +11,7 @@ Generically formated results are displayed to stdout.
 
 The resulting config is output to a CSV file for the specified radio model.\
 The radio model can be specified with the -r / --radio argument.\
-List supported radio models with the -lr / --list-radios argument.\ 
+List supported radio models with the -lr / --list-radios argument.\
 Currently, only TIDRADIO TD-H8s are supported.
 
 The default database(s) downloaded is Land Mobile - Private.\
