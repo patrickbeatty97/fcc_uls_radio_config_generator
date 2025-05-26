@@ -27,7 +27,8 @@ USAGE
 -----
     gen_fcc_uls_radio_config.py --help
 
-Download and load the FCC ULS database dump files specified and return frequencies from NYC for the PW service code (Public Works - Police, Fire, EMS, etc). A resulting CSV file will be generated for a TIDRADIO TD-H8 : 
+Download and load the FCC ULS database dump files specified and return frequencies from NYC for the PW service code (Public Works - Police, Fire, EMS, etc).\
+A resulting CSV file will be generated for a TIDRADIO TD-H8 : 
 
     gen_fcc_uls_radio_config.py --city "New York" -s PW -zf l_LMcomm.zip,l_LMpriv.zip,l_LMbcast.zip,l_coast.zip,l_micro.zip,l_paging.zip -r tdh8
 
