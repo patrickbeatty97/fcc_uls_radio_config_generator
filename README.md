@@ -2,26 +2,26 @@
 --------------
 
 This script downloads a local copy of the FCC ULS database dump ZIP files, extracts them, and loads them 
-into an SQLite database (if the database doesn't already exist locally).
+into an SQLite database (if the database doesn't already exist locally).\
 It then searches the database, currenty either by City or ZIP code(s) and the Radio Service Code(s), and outputs the frequency results formatted for importing into HAM radios and/or scanners.
 
 I primarily use it in combination with the PW (Public Works) service code argument, for obtaining Police/Fire/EMS frequencies for quickly importing into my radio based on a location. 
 
 Generically formated results are displayed to stdout.
 
-The resulting config is output to a CSV file for the specified radio model.
-The radio model can be specified with the -r / --radio argument.
-List supported radio models with the -lr / --list-radios argument. 
+The resulting config is output to a CSV file for the specified radio model.\
+The radio model can be specified with the -r / --radio argument.\
+List supported radio models with the -lr / --list-radios argument.\ 
 Currently, only TIDRADIO TD-H8s are supported.
 
-The default database(s) downloaded is Land Mobile - Private.
-Multiple databases can be specified with the -zf / --zip-files argument.
+The default database(s) downloaded is Land Mobile - Private.\
+Multiple databases can be specified with the -zf / --zip-files argument.\
 List supported databases with the -lz / --list-zips argument.
 
 **NOTE:**
-  All of the FCC ULS database dump zip files the script utilizes total up to around 6 or 7GB last I checked.
-  The first time the script runs to download and load them it can take 10 minutes or longer if all are requested.
-  Future runs use the local existing data unless the --cc / --clear-cache option is specified.  
+  All of the FCC ULS database dump zip files the script utilizes total up to around 6 or 7GB last I checked.\
+  The first time the script runs to download and load them it can take 10 minutes or longer if all are requested.\
+  Future runs use the local existing data unless the --cc / --clear-cache option is specified.
 
 USAGE
 -----
