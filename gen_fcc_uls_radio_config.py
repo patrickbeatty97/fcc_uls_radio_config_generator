@@ -1,8 +1,10 @@
 #!/usr/bin/python3
 
 import os
+import re
 import sys
 import csv
+import shutil
 import zipfile
 import sqlite3
 import argparse
@@ -14,6 +16,10 @@ from datetime import datetime
 
 # Constants
 BASE_URL = 'https://data.fcc.gov/download/pub/uls/complete/'
+DATA_DIR_PREFIX = os.getcwd()
+DATA_DIR = DATA_DIR_PREFIX + '/fcc_uls_data'
+DB_FILE = DATA_DIR + '/fcc_uls.db'
+ZIPS_LOADED_TABLE_NAME = 'loaded_zips'
 DEFAULT_ZIPFILES = ['l_LMpriv.zip']
 SUPPORTED_ZIPFILES = {
     'l_paging.zip',
@@ -25,13 +31,14 @@ SUPPORTED_ZIPFILES = {
     'l_LMcomm.zip',
     'l_micro.zip'
 }
-DATA_DIR = os.getcwd() + '/uls_data'
-DB_FILE = DATA_DIR + '/uls_lmpriv.db'
-ZIPS_LOADED_TABLE_NAME = 'loaded_zips'
+DEFAULT_CHAN_DESC_SUFFIX = 'Q'
+EXCLUDED_CHAN_DESC_WORDS = {
+    "IS", "THE", "WHICH", "ENTITY", "APPLICANT", "SPECIFIC", "RADIOS",
+    "WILL", "BE", "USED", "FOR", "OF", "LICENSE", "LICENSEE", "PROVIDING"
+}
 SUPPORTED_RADIOS = ['tdh8']
 CSV_FILE_PREFIX = ''
 CSV_FILE_SUFFIX = '_frequencies-' + datetime.today().strftime('%Y%m%d%H%M%S') + '.csv'
-
 CSV_HEADERS_TDH8 = [
     "Location", "Name", "Frequency", "Duplex", "Offset", "Tone", "rToneFreq", "cToneFreq",
     "DtcsCode", "DtcsPolarity", "RxDtcsCode", "CrossMode", "Mode", "TStep", "Skip",
@@ -43,6 +50,86 @@ CSV_DEFAULT_ROW_TDH8 = [
 ]
 
 csv.field_size_limit(sys.maxsize)
+
+def gen_chan_desc(city, entity, eligibility, seen, max_length=7):
+    # Step 1: City abbreviation
+    words = city.upper().split()
+    if len(words) == 1:
+        prefix = words[0][:2]
+    elif len(words) == 2:
+        prefix = words[0][0] + words[1][0]
+    else:
+        prefix = words[0][0] + words[-1][0]
+    prefix = prefix.ljust(2, 'X')
+
+    # Step 2: Merge and normalize source text
+    source_text = f"{entity} {eligibility}".upper()
+
+    # Step 3: Determine type-based suffix
+    suffix = None
+    if "POLICE" in source_text and "STATE" in source_text:
+        suffix = "SPD"
+    elif "POLICE" in source_text and any(k in source_text for k in ["CAMPUS", "UNIVERSITY", "COLLEGE"]):
+        suffix = "UNVPD"
+    elif "POLICE" in source_text:
+        suffix = "PD"
+    elif "SHERIFF" in source_text:
+        suffix = "SHRF"
+    elif "FIRE" in source_text or "EMERGENCY" in source_text:
+        suffix = "FEMS"
+    elif "SWAT" in source_text or "S.W.A.T" in source_text:
+        suffix = "SWAT"
+    else:
+        # fallback: first char of first 5 non-excluded words in entity
+        suffix = ''.join(
+            word[0] for word in re.split(r'\W+', entity.upper())
+            if word and word not in EXCLUDED_CHAN_DESC_WORDS
+        )[:5]
+        if not suffix:
+            suffix = DEFAULT_CHAN_DESC_SUFFIX
+
+        # Step 4: Clean remaining text and trim to fit
+        remaining_len = max_length - len(prefix + suffix)
+        if remaining_len > 0:
+            source_clean = re.sub(r'[^A-Z0-9]', '', source_text)
+            suffix += source_clean[:remaining_len]
+
+    base = (prefix + suffix)[:max_length]
+
+    # Step 5: Always generate suffixed variant starting with 1
+    count = seen.get(base, 0) + 1
+    seen[base] = count
+
+    suffix_str = str(count)
+    trimmed = base[:max_length - len(suffix_str)]
+    candidate = trimmed + suffix_str
+
+    return candidate
+
+def gen_radio_config(radio, results, channel_offset=1):
+    if radio not in SUPPORTED_RADIOS:
+        raise ValueError(f"Unsupported radio model: {radio}. Supported models: {', '.join(SUPPORTED_RADIOS)}")
+
+    if radio == 'tdh8':
+        csv_filename = CSV_FILE_PREFIX + radio + CSV_FILE_SUFFIX
+
+        with open(csv_filename, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(CSV_HEADERS_TDH8)
+
+            seen_names = {}
+
+            for idx, row in enumerate(results, start=channel_offset):
+                freq, call_sign, entity, city, state, zipc, service, eligibility, status = row
+                name = gen_chan_desc(city, entity, eligibility, seen_names, max_length=7)
+
+                formatted_row = CSV_DEFAULT_ROW_TDH8.copy()
+                formatted_row[0] = str(idx)                   # Location
+                formatted_row[1] = name                       # Name
+                formatted_row[2] = f"{float(freq):.5f}"       # Frequency
+                writer.writerow(formatted_row)
+
+        print(f"\nCSV file written: {csv_filename}")
 
 def download_with_progress(url, filename):
     print(f"Downloading: {url}")
@@ -142,7 +229,7 @@ def load_dat_to_sqlite(conn, filepath, table, new_db=False):
     conn.commit()
     print(f"Inserted {len(rows)} rows into {table}")
 
-def search_frequencies(conn, zip_codes=None, city=None, service_codes=None, status='active', radio=None):
+def search_freqs(conn, zip_codes=None, city=None, service_codes=None, status='active', radio=None, channel_offset=1):
     cursor = conn.cursor()
     try:
         if not city and not zip_codes:
@@ -161,6 +248,7 @@ def search_frequencies(conn, zip_codes=None, city=None, service_codes=None, stat
         base_query = '''
         SELECT
             EM.col_7 AS frequency_assigned,
+            EM.col_4 as call_sign,
             EN.col_7 AS entity_name,
             EN.col_16 AS city,
             EN.col_17 AS state,
@@ -217,40 +305,24 @@ def search_frequencies(conn, zip_codes=None, city=None, service_codes=None, stat
 
         cursor.execute(base_query, tuple(params))
         results = cursor.fetchall()
+
+        if not results:
+            print("No results found.")
+            return
+        
         label = f"ZIP(s) {', '.join(zip_codes)}" if zip_codes else f"City {city}"
 
         print(f"\nResults for {label} and Service Codes {', '.join(service_codes)} (Status: {status}):")
 
         for row in results:
-            freq, name, city, state, zipc, service, eligibility, status = row
-            print(f"Freq: {freq} MHz, Entity: {name}, Location: {city}, {state} {zipc}, Service: {service}, Eligibility: {eligibility}, Status: {status}")
+            freq, call_sign, name, city, state, zipc, service, eligibility, status = row
+            print(f"Freq: {freq} MHz, Call Sign: {call_sign}, Entity: {name}, Location: {city}, {state} {zipc}, Service: {service}, Eligibility: {eligibility}, Status: {status}")
 
-        if not results:
-            print("No results found.")
-            return
-
-        if radio == 'tdh8':
-            csv_filename = CSV_FILE_PREFIX + radio + CSV_FILE_SUFFIX
-
-            with open(csv_filename, 'w', newline='') as csvfile:
-                writer = csv.writer(csvfile)
-                writer.writerow(CSV_HEADERS_TDH8)
-
-                for idx, row in enumerate(results, start=1):
-                    freq = row[0]
-                    name = str(int(float(freq) * 1000))[:5]  # first five digits without dot
-                    formatted_row = CSV_DEFAULT_ROW_TDH8.copy()
-                    formatted_row[0] = str(idx)
-                    formatted_row[1] = name
-                    formatted_row[2] = f"{float(freq):.5f}"
-                    writer.writerow(formatted_row)
-
-            print(f"\nCSV file written: {csv_filename}")
-        else:
-            for row in results:
-                freq, name, city, state, zipc, service, eligibility, status = row
-
-                print(f"Freq: {freq} MHz, Entity: {name}, Location: {city}, {state} {zipc}, Service: {service}, Eligibility: {eligibility}, Status: {status}")
+        if radio:
+            try:
+                gen_radio_config(radio, results, channel_offset)
+            except ValueError as e:
+                print(f"Error: {e}")
 
     except sqlite3.OperationalError as e:
         print(f"Query error: {e}")
@@ -270,6 +342,7 @@ def main():
     parser = argparse.ArgumentParser(description="FCC ULS Database Loader and Frequency Search")
     parser.add_argument('-lr', '--list-radios', action='store_true', help="List supported radio models")
     parser.add_argument('-r', '--radio', choices=SUPPORTED_RADIOS, help="Output result formatted for a specific radio (currently only: tdh8)")
+    parser.add_argument('-co', '--channel-offset', type=int, default=1, help="Starting number for channel number field in CSV output. Default: 1")
     parser.add_argument('-z', '--zip', help="ZIP code(s) to search, comma-separated")
     parser.add_argument('-c', '--city', help="City to search")
     parser.add_argument('-ls', '--list-services', action='store_true', help="List available radio service code(s) to search")
@@ -278,7 +351,8 @@ def main():
     parser.add_argument('-lz', '--list-zipfiles', action='store_true', help="List available ZIP files to download from FCC")
     zf_arg_help_msg = 'Comma-separated ZIP filenames to download and load (e.g. l_LMpriv.zip,l_AM.zip). Default : ' + ", ".join(DEFAULT_ZIPFILES)
     parser.add_argument('-zf', '--zipfiles', help=zf_arg_help_msg)
-    parser.add_argument('-cc', '--clear-cache', action='store_true', help="Clear cached ZIP files and SQL tables. Default is to use cached data if it exist")
+    #parser.add_argument('-cc', '--clear-cache', action='store_true', help="Clear cached ZIP files and SQL tables. Default is to use cached data if it exist")
+    parser.add_argument('-cc', '--clear-cache', action='store_true', help="Clear database and re-download and load ZIP files into new database. Default is to use cached data if it exist")
     args = parser.parse_args()
 
     if args.list_radios:
@@ -336,54 +410,68 @@ def main():
         init_loaded_zips_table(conn)
 
     for zip_filename in zip_filenames:
-        zip_filename_full_path = DATA_DIR + '/' + zip_filename
-        zip_url = BASE_URL + zip_filename
-
-        if os.path.exists(zip_filename_full_path):
-            if args.clear_cache:
-                print(f"{zip_filename} exists, but re-downloading because --clear-cache was specified")
-                download_with_progress(zip_url, DATA_DIR + '/' + zip_filename)
-            else:
-                print(f"{zip_filename} exists. Using existing file. Use -cc / --clear-cache to re-download ZIP files")
-        else:
-            print(f"{zip_filename} doesn't exist, downloading")
-            download_with_progress(zip_url, zip_filename_full_path)
-
-        extract_dir = DATA_DIR + '/' + zip_filename.replace('.zip', '')
-
-        if not os.path.exists(extract_dir):
-            os.makedirs(extract_dir, exist_ok=True)
-            extract_zip(zip_filename_full_path, extract_dir)
-        elif (args.clear_cache):
-            print(f"{extract_dir} directory exists, but re-extracting because --clear-cache was specified")
-            extract_zip(zip_filename_full_path, extract_dir)
-        else:
-            print(f"{extract_dir} directory exists. Skipping extraction. Use -cc / --clear-cache to re-extract ZIP files")
-
         new_zip_db = False
 
         if (not zip_already_loaded(conn, zip_filename)):
             new_zip_db = True
 
-        dat_files = [('EN.dat', 'EN'), ('HD.dat', 'HD'), ('EM.dat', 'EM'), ('LM.dat', 'LM')]
+        zip_filename_full_path = DATA_DIR + '/' + zip_filename
+        zip_url = BASE_URL + zip_filename
 
-        for fname, table in dat_files:
-            fpath = find_file(extract_dir, fname)
-            if fpath:
-                load_dat_to_sqlite(conn, fpath, table, new_zip_db)
-            else:
-                print(f"{fname} not found in {extract_dir}.")
-
+        #if not os.path.exists(zip_filename_full_path):
         if (new_zip_db):
-          set_zip_as_loaded(conn, zip_filename)
+            #print(f"{zip_filename} doesn't exist, downloading")
+            download_with_progress(zip_url, zip_filename_full_path)
+        elif (args.clear_cache):
+            #print(f"{zip_filename} exists, but re-downloading because --clear-cache was specified")
+            print(f"{zip_filename} previously downloaded, but re-downloading because --clear-cache was specified")
+            download_with_progress(zip_url, DATA_DIR + '/' + zip_filename)
+        else:
+            #print(f"{zip_filename} exists. Using existing file. Use -cc / --clear-cache to re-download ZIP files")
+            print(f"{zip_filename} previously downloaded. Using existing data. Use -cc / --clear-cache to re-download ZIP files")
 
-    search_frequencies(
+        extract_dir = DATA_DIR + '/' + zip_filename.replace('.zip', '')
+
+        #if not os.path.exists(extract_dir):
+        if (new_zip_db or args.clear_cache):
+            os.makedirs(extract_dir, exist_ok=True)
+            extract_zip(zip_filename_full_path, extract_dir)
+        #elif (args.clear_cache):
+            #print(f"{extract_dir} directory exists, but re-extracting because --clear-cache was specified")
+            #extract_zip(zip_filename_full_path, extract_dir)
+        #else:
+            #print(f"{extract_dir} directory exists. Skipping extraction. Use -cc / --clear-cache to re-extract ZIP files")
+
+            dat_files = [('EN.dat', 'EN'), ('HD.dat', 'HD'), ('EM.dat', 'EM'), ('LM.dat', 'LM')]
+
+            for fname, table in dat_files:
+                fpath = find_file(extract_dir, fname)
+                if fpath:
+                    load_dat_to_sqlite(conn, fpath, table, new_zip_db)
+                else:
+                    print(f"{fname} not found in {extract_dir}.")
+
+            print(f"Setting {zip_filename} as loaded in database")
+            set_zip_as_loaded(conn, zip_filename)
+
+            #Delete ZIP file downloaded and extracted contents
+            print(f"Removing {zip_filename_full_path}")
+            if (os.path.exists(zip_filename_full_path)):
+                os.remove(zip_filename_full_path)
+
+            #Delete extracted ZIP file contents
+            print(f"Removing {extract_dir} and contents")
+            if (os.path.exists(extract_dir)):
+                shutil.rmtree(extract_dir)
+
+    search_freqs(
         conn,
         zip_codes=zip_codes,
         city=args.city,
         service_codes=service_codes,
         status=args.status,
-        radio=args.radio
+        radio=args.radio,
+        channel_offset=args.channel_offset        
     )
 
     conn.close()
