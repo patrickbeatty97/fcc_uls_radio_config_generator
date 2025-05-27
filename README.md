@@ -19,14 +19,14 @@ Multiple databases can be specified with the **-zf / --zip-files** argument.\
 List supported databases with the **-lz / --list-zips** argument.
 
 **NOTE:**\
-  The first time the script runs to download and load the FCC ULS database dump zip files, it can take about 10 minutes or longer, depending on your internet speed, the FCC's internet speed, your computer, and how many files are requested, to name a few factors.\
+  The first time the script runs, it can take about 10 minutes or longer to download the FCC ULS database dump zip files and load them into the SQLite database, depending on your internet speed, the FCC's internet speed, your computer, and how many files are requested, to name a few factors.\
   Future runs use the local existing data unless the --cc / --clear-cache option is specified.
 
 USAGE
 -----
     gen_fcc_uls_radio_config.py --help
 
-Download and load the FCC ULS database dump files specified and return frequencies from NYC for the PW service code (Public Works - Police, Fire, EMS, etc).\
+Download the FCC ULS database dump zip files specified, load them into the database, and return frequencies from NYC for the PW service code (Public Works - Police, Fire, EMS, etc).\
 A resulting CSV file will be generated for a TIDRADIO TD-H8 : 
 
     gen_fcc_uls_radio_config.py -c "New York" -s PW -zf l_LMcomm.zip,l_LMpriv.zip,l_LMbcast.zip,l_coast.zip -r tdh8
