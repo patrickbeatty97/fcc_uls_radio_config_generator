@@ -20,10 +20,25 @@ csv.field_size_limit(sys.maxsize)
 # Constants
 SELF_DESC = 'FCC ULS Database Loader, Frequency Search, and Radio Config Generator'
 BASE_URL = 'https://data.fcc.gov/download/pub/uls/complete/'
-#DATA_DIR_PREFIX = os.getcwd()
-DATA_DIR_PREFIX = '/home/dexter/Downloads'
+DATA_DIR_PREFIX = os.getcwd()
 DATA_DIR = DATA_DIR_PREFIX + '/fcc_uls_data'
 DB_FILE = DATA_DIR + '/fcc_uls.db'
+SUPPORTED_RADIOS = {
+    'tdh8': {
+        'chan_name_max_len': 7,
+        'csv_headers': [
+            "Location", "Name", "Frequency", "Duplex", "Offset", "Tone", "rToneFreq", "cToneFreq",
+            "DtcsCode", "DtcsPolarity", "RxDtcsCode", "CrossMode", "Mode", "TStep", "Skip",
+            "Power", "Comment", "URCALL", "RPT1CALL", "RPT2CALL", "DVCODE"
+        ],
+        'csv_default_row': [
+            "", "", "", "", "0.00000", "", "88.5", "88.5", "023", "NN", "023", "Tone->Tone",
+            "FM", "5.0", "", "8.0W", "", "", "", "", ""
+        ]
+    }
+}
+CSV_FILE_PREFIX = ''
+CSV_FILE_SUFFIX = '_frequencies-' + datetime.today().strftime('%Y%m%d%H%M%S') + '.csv'
 ZIPS_LOADED_TABLE_NAME = 'loaded_zips'
 DEFAULT_ZIPFILES = ['l_LMpriv.zip']
 SUPPORTED_ZIPFILES = {
@@ -37,133 +52,131 @@ SUPPORTED_ZIPFILES = {
     'l_micro.zip'
 }
 DEFAULT_CHAN_NAME_SUFFIX = 'Q'
+DEFAULT_CHAN_NAME_MAX_LEN = 99
 #EXCLUDED_CHAN_NAME_WORDS = {
 #    "IS", "THE", "WHICH", "ENTITY", "APPLICANT", "SPECIFIC", "RADIOS",
 #    "WILL", "BE", "USED", "FOR", "OF", "LICENSE", "LICENSEE", "PROVIDING"
 #}
 EXCLUDED_CHAN_NAME_WORDS = {}
-SUPPORTED_RADIOS = ['tdh8']
-TDH8_MAX_CHAN_NAME_LENGTH = 7
-CSV_FILE_PREFIX = ''
-CSV_FILE_SUFFIX = '_frequencies-' + datetime.today().strftime('%Y%m%d%H%M%S') + '.csv'
-CSV_HEADERS_TDH8 = [
-    "Location", "Name", "Frequency", "Duplex", "Offset", "Tone", "rToneFreq", "cToneFreq",
-    "DtcsCode", "DtcsPolarity", "RxDtcsCode", "CrossMode", "Mode", "TStep", "Skip",
-    "Power", "Comment", "URCALL", "RPT1CALL", "RPT2CALL", "DVCODE"
-]
-CSV_DEFAULT_ROW_TDH8 = [
-    "", "", "", "", "0.00000", "", "88.5", "88.5", "023", "NN", "023", "Tone->Tone",
-    "FM", "5.0", "", "8.0W", "", "", "", "", ""
-]
 
-def gen_chan_name(prefix_type, prefix, entity, eligibility, seen, max_length=999):
+def gen_radio_chan_name(entity, eligibility, seen, prefix_src='city', prefix_str=None, suffix_src='auto', suffix_str=None, max_length=999):
     # Step 1: Determine prefix
-    if prefix_type.lower() == 'city':
-        words = prefix.upper().split()  # fallback if city is not passed
+    if prefix_src.lower() == 'city':
+        words = prefix_str.upper().split()  # fallback if city is not passed
 
         if len(words) == 1:
-            prefix = words[0][:2]
+            prefix_str = words[0][:2]
         elif len(words) == 2:
-            prefix = words[0][0] + words[1][0]
+            prefix_str = words[0][0] + words[1][0]
         else:
-            prefix = words[0][0] + words[1][0] + + words[2][0]
+            prefix_str= words[0][0] + words[1][0] + + words[2][0]
 
         #prefix = prefix.ljust(2, 'X')
 
     # Step 2: Merge and normalize source text
-    source_text = f"{entity} {eligibility}".upper()
+    src_txt = f"{entity} {eligibility}".upper()
 
-    if (verbose > 1):
-        print(f"CHANNEL NAME TEXT SOURCE : {source_text}")
+    if verbose > 1:
+        print(f"CHANNEL NAME TEXT SOURCE : {src_txt}")
 
-    # Step 3: Determine type-based suffix
-    suffix = None
+    # Step 3: Determine suffix
+    if suffix_src.lower() == 'auto':
+        if "POLICE" in src_txt and "STATE" in src_txt:
+            suffix_str = "SPD"
+        elif "POLICE" in src_txt and any(k in src_txt for k in ["CAMPUS", "UNIVERSITY", "COLLEGE"]):
+            suffix_str = "UNVPD"
+        elif "POLICE" in src_txt:
+            suffix_str = "PD"
+        elif "SHERIFF" in src_txt:
+            suffix_str = "SHRF"
+        elif "FIRE" in src_txt or "EMERGENCY" in src_txt:
+            suffix_str = "FEMS"
+        elif "SWAT" in src_txt or "S.W.A.T" in src_txt:
+            suffix_str = "SWAT"
+        else:
+            for word in re.split(r'\W+', entity.upper()):
+                if verbose > 1:
+                    print(f"CHANNEL NAME AUTO SUFFIX ENTITY WORD : {word}")
 
-    if "POLICE" in source_text and "STATE" in source_text:
-        suffix = "SPD"
-    elif "POLICE" in source_text and any(k in source_text for k in ["CAMPUS", "UNIVERSITY", "COLLEGE"]):
-        suffix = "UNVPD"
-    elif "POLICE" in source_text:
-        suffix = "PD"
-    elif "SHERIFF" in source_text:
-        suffix = "SHRF"
-    elif "FIRE" in source_text or "EMERGENCY" in source_text:
-        suffix = "FEMS"
-    elif "SWAT" in source_text or "S.W.A.T" in source_text:
-        suffix = "SWAT"
-    else:
-        for word in re.split(r'\W+', entity.upper()):
-            if (verbose > 1):
-                print(f"CHANNEL NAME ENTITY WORDS : {word}")
+            # fallback: first char of first 5 non-excluded words in entity
+            suffix_str = ''.join(
+                word[0] for word in re.split(r'\W+', entity.upper())
+                if word and word not in EXCLUDED_CHAN_NAME_WORDS            
+            )[:5]
 
-        # fallback: first char of first 5 non-excluded words in entity
-        suffix = ''.join(
-            word[0] for word in re.split(r'\W+', entity.upper())
-            if word and word not in EXCLUDED_CHAN_NAME_WORDS            
-        )[:5]
+            if not suffix_str:
+                suffix_str = DEFAULT_CHAN_NAME_SUFFIX   
 
-        if not suffix:
-            suffix = DEFAULT_CHAN_NAME_SUFFIX
+            # Step 4: Clean remaining text and trim to fit
+            #remaining_len = max_length - len(prefix + suffix_str)
 
-        if (verbose > 1):
-            print(f"CHANNEL NAME SUFFIX : {suffix}")    
+            #if remaining_len > 0:
+            #    src_clean = re.sub(r'[^A-Z0-9]', '', src_txt)
+            #
+            #    if verbose > 1:
+            #        print(f"CHANNEL NAME AUTO SUFFIX TEXT SOURCE CLEANED : {source_clean}")
+            #
+            #    suffix_str += src_clean[:remaining_len]
 
-        # Step 4: Clean remaining text and trim to fit
-        #remaining_len = max_length - len(prefix + suffix)
+            #if verbose > 1:
+            #    print(f"CHANNEL NAME AUTO SUFFIX CLEANED AND TRIMMED : {suffix_str}")
 
-        #if remaining_len > 0:
-        #    source_clean = re.sub(r'[^A-Z0-9]', '', source_text)
-        #
-        #    if (verbose > 1):
-        #        print(f"CHANNEL NAME TEXT SOURCE CLEANED : {source_clean}")
-        #
-        #    suffix += source_clean[:remaining_len]
+        if verbose > 1:
+            print(f"CHANNEL NAME AUTO SUFFIX : {suffix_str}") 
 
-        #if (verbose > 1):
-        #    print(f"CHANNEL NAME SUFFIX CLEANED AND TRIMMED : {suffix}")
-
-    base = (prefix + suffix)[:max_length]
+    base = (re.sub(r'[^A-Z0-9]', '', prefix_str.upper() + suffix_str.upper()))[:max_length]
 
     # Step 5: Always generate suffixed variant starting with 1
     count = seen.get(base, 0) + 1
     seen[base] = count
-    suffix_str = str(count)
-    trimmed = base[:max_length - len(suffix_str)]
-    candidate = trimmed + suffix_str
+    suffix_count_str = str(count)
+    trimmed = base[:max_length - len(suffix_count_str)]
+    candidate = trimmed + suffix_count_str
 
-    if (verbose > 1):
+    if verbose > 1:
         print(f"CHANNEL NAME GENERATED : {candidate}")
 
     return candidate
 
-def gen_radio_config(radio, results, chan_offset=1, chan_name_prefix_type='city'):
+def gen_radio_conf(radio, results, chan_offset=1, chan_name_prefix_src='city', chan_name_suffix_src='auto'):
     if radio not in SUPPORTED_RADIOS:
         raise ValueError(f"Unsupported radio model: {radio}. Supported models: {', '.join(SUPPORTED_RADIOS)}")
-    
-    csv_filename = CSV_FILE_PREFIX + radio + CSV_FILE_SUFFIX
 
-    if (chan_name_prefix_type != 'city' and chan_name_prefix_type != 'callsign'):
-        chan_name_prefix = chan_name_prefix_type
-        chan_name_prefix_type = 'custom'   
+    radio_conf_vars = SUPPORTED_RADIOS[radio]
+
+    csv_filename = CSV_FILE_PREFIX + radio + CSV_FILE_SUFFIX        
 
     if radio == 'tdh8':
         with open(csv_filename, 'w', newline='') as csvfile:
             writer = csv.writer(csvfile)
-            writer.writerow(CSV_HEADERS_TDH8)
+            writer.writerow(radio_conf_vars.get('csv_headers'))
 
             seen_names = {}
+
+            if (chan_name_prefix_src != 'city' and chan_name_prefix_src != 'callsign'):
+                chan_name_prefix_str = chan_name_prefix_src
+                chan_name_prefix_src = 'custom'            
+
+            chan_name_suffix_str = ''
+
+            if (chan_name_suffix_src != 'auto' and chan_name_prefix_src != 'freq'):
+                chan_name_suffix_str = chan_name_suffix_src
+                chan_name_suffix_src = 'custom'
 
             for idx, row in enumerate(results, start=chan_offset):
                 freq, call_sign, entity, city, state, zipc, service, eligibility, status = row
 
-                if chan_name_prefix_type == 'city':
-                    chan_name_prefix = city
-                elif chan_name_prefix_type == 'callsign':
-                    chan_name_prefix = call_sign
+                if chan_name_prefix_src == 'city':
+                    chan_name_prefix_str = city
+                elif chan_name_prefix_src == 'callsign':
+                    chan_name_prefix_str = call_sign
 
-                name = gen_chan_name(chan_name_prefix_type, chan_name_prefix, entity, eligibility, seen_names, TDH8_MAX_CHAN_NAME_LENGTH)
+                if chan_name_suffix_src == 'freq':
+                    chan_name_suffix_str = freq
 
-                formatted_row = CSV_DEFAULT_ROW_TDH8.copy()
+                name = gen_radio_chan_name(entity, eligibility, seen_names, chan_name_prefix_src, chan_name_prefix_str, chan_name_suffix_src, chan_name_suffix_str, radio_conf_vars.get('chan_name_max_len', DEFAULT_CHAN_NAME_MAX_LEN))
+
+                formatted_row = radio_conf_vars.get('csv_default_row').copy()
                 formatted_row[0] = str(idx)
                 formatted_row[1] = name 
                 formatted_row[2] = f"{float(freq):.5f}"
@@ -250,10 +263,10 @@ def load_dat_to_sqlite(conn, filepath, table, new_db=False):
     cursor = conn.cursor()
     column_count = detect_column_count(filepath)
 
-    if (not table_exists(conn, table)):
+    if not table_exists(conn, table):
         create_table(cursor, table, column_count)
     else:
-        if (not new_db):
+        if not new_db:
             print(f"Table {table} exists. Using existing table and row rata. Use -cc / --clear-cache to clear SQL tables")    
             return
         
@@ -292,7 +305,7 @@ def search_freqs(conn, zip_codes=None, city=None, service_codes=None, status='ac
         
         lm_table_exists = False;
 
-        if (table_exists(conn, 'LM')):
+        if table_exists(conn, 'LM'):
             lm_table_exists = True;
 
         base_query = '''
@@ -305,7 +318,7 @@ def search_freqs(conn, zip_codes=None, city=None, service_codes=None, status='ac
             EN.col_18 AS zip_code,
             HD.col_6 AS service_code,'''
         
-        if (lm_table_exists):
+        if lm_table_exists:
             base_query += '\n            LM.col_6 AS eligibility,'
         
         # base_query += '''
@@ -320,7 +333,7 @@ def search_freqs(conn, zip_codes=None, city=None, service_codes=None, status='ac
         JOIN HD ON EM.col_1 = HD.col_1
         JOIN EN ON HD.col_1 = EN.col_1'''
         
-        if (lm_table_exists):
+        if lm_table_exists:
             base_query += '\n        LEFT JOIN LM ON HD.col_1 = LM.col_1'
 
         base_query += '''
@@ -351,7 +364,7 @@ def search_freqs(conn, zip_codes=None, city=None, service_codes=None, status='ac
 
         base_query += ' ORDER BY frequency_assigned ASC'
 
-        if (verbose):
+        if verbose:
             debug_sql(base_query, params)
 
         cursor.execute(base_query, tuple(params))
@@ -384,9 +397,10 @@ def list_available_zip_files():
 def main():
     parser = argparse.ArgumentParser(description=SELF_DESC)
     parser.add_argument('-lr', '--list-radios', action='store_true', help="List supported radio models")
-    parser.add_argument('-r', '--radio', choices=SUPPORTED_RADIOS, help="Output result formatted for a specific radio (currently only: tdh8)")
+    parser.add_argument('-r', '--radio', choices=SUPPORTED_RADIOS.keys(), help="Output result formatted for a specific radio (currently only: tdh8)")
     parser.add_argument('-co', '--channel-offset', type=int, default=1, help="Starting number for channel field in CSV output. Default: 1")
-    parser.add_argument('-cp', '--channel-prefix', default='city', help="Prefix method to use for channel names : city (Default. The first two characters of the city name, or the first character of each word in the city name if its multiple words e.g, NY), callsign, or a custom string. The channel name will be automatically trimmed to the max length for the model radio specified")
+    parser.add_argument('-cp', '--channel-prefix', default='city', help="Method used to generate channel name prefixes : city (Default. The first two characters of the city name if its one word, or the first character of each word in the city name e.g, NY), callsign, or a custom string. The channel name will be automatically trimmed to the max length for the model radio specified")
+    parser.add_argument('-cs', '--channel-suffix', default='auto', help="Method used to generate channel name suffixes : auto (Default. The suffix is obtained dynamically based on keywords in the entity and eligibility fields, or the first character from the first 5 words in the entity field), freq, or a custom string. The channel name will be automatically trimmed to the max length for the model radio specified")
     parser.add_argument('-z', '--zip', help="ZIP code(s) to search, comma-separated")
     parser.add_argument('-c', '--city', help="City to search")
     parser.add_argument('-ls', '--list-services', action='store_true', help="List available radio service code(s) to search")
@@ -404,7 +418,7 @@ def main():
  
     args = parser.parse_args()
 
-    if (args.verbose):
+    if args.verbose:
         global verbose
         verbose = args.verbose
 
@@ -450,8 +464,8 @@ def main():
 
     os.makedirs(DATA_DIR, exist_ok=True)
 
-    if (os.path.exists(DB_FILE)):
-        if (args.clear_cache):
+    if os.path.exists(DB_FILE):
+        if args.clear_cache:
             print(f"{DB_FILE} exists, but re-creating database because --clear-cache was specified")
             os.remove(DB_FILE)
         else:
@@ -459,23 +473,23 @@ def main():
 
     conn = sqlite3.connect(DB_FILE)
 
-    if (not table_exists(conn, 'loaded_zips')):
+    if not table_exists(conn, 'loaded_zips'):
         init_loaded_zips_table(conn)
 
     for zip_filename in zip_filenames:
         new_zip_db = False
 
-        if (not zip_already_loaded(conn, zip_filename)):
+        if not zip_already_loaded(conn, zip_filename):
             new_zip_db = True
 
         zip_filename_full_path = DATA_DIR + '/' + zip_filename
         zip_url = BASE_URL + zip_filename
 
         #if not os.path.exists(zip_filename_full_path):
-        if (new_zip_db):
+        if new_zip_db:
             #print(f"{zip_filename} doesn't exist, downloading")
             download_with_progress(zip_url, zip_filename_full_path)
-        elif (args.clear_cache):
+        elif args.clear_cache:
             #print(f"{zip_filename} exists, but re-downloading because --clear-cache was specified")
             print(f"{zip_filename} previously downloaded, but re-downloading because --clear-cache was specified")
             download_with_progress(zip_url, DATA_DIR + '/' + zip_filename)
@@ -486,10 +500,10 @@ def main():
         extract_dir = DATA_DIR + '/' + zip_filename.replace('.zip', '')
 
         #if not os.path.exists(extract_dir):
-        if (new_zip_db or args.clear_cache):
+        if new_zip_db or args.clear_cache:
             os.makedirs(extract_dir, exist_ok=True)
             extract_zip(zip_filename_full_path, extract_dir)
-        #elif (args.clear_cache):
+        #elif args.clear_cache:
             #print(f"{extract_dir} directory exists, but re-extracting because --clear-cache was specified")
             #extract_zip(zip_filename_full_path, extract_dir)
         #else:
@@ -508,13 +522,13 @@ def main():
             set_zip_as_loaded(conn, zip_filename)
 
             #Delete ZIP file downloaded and extracted contents
-            print(f"Removing {zip_filename_full_path}")
-            if (os.path.exists(zip_filename_full_path)):
+            if os.path.exists(zip_filename_full_path):
+                print(f"Removing {zip_filename_full_path}") 
                 os.remove(zip_filename_full_path)
 
             #Delete extracted ZIP file contents
-            print(f"Removing {extract_dir} and contents")
-            if (os.path.exists(extract_dir)):
+            if os.path.exists(extract_dir):
+                print(f"Removing {extract_dir} and contents")
                 shutil.rmtree(extract_dir)
 
     search_results = search_freqs(
@@ -527,7 +541,7 @@ def main():
 
     conn.close()
 
-    if (search_results):
+    if search_results:
         label = f"ZIP(s) {', '.join(zip_codes)}" if zip_codes else f"City {args.city}"
 
         print(f"\nResults for {label} and Service Codes {', '.join(service_codes)} (Status: {args.status}):")
@@ -538,7 +552,7 @@ def main():
 
         if args.radio:
             try:
-                gen_radio_config(args.radio, search_results, args.channel_offset, args.channel_prefix)
+                gen_radio_conf(args.radio, search_results, args.channel_offset, args.channel_prefix, args.channel_suffix)
             except ValueError as e:
                 print(f"Error: {e}")
 
