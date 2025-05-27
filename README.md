@@ -31,6 +31,7 @@ A resulting CSV file will be generated for a TIDRADIO TD-H8 :
 
     gen_fcc_uls_radio_config.py -c "New York" -s PW -zf l_LMcomm.zip,l_LMpriv.zip,l_LMbcast.zip,l_coast.zip -r tdh8
 
+
 Example stdout generic result lines (not from the CSV file generated) :
 
 Freq: 487.66250000 MHz, Call Sign: WIM675, Entity: NEW YORK CITY POLICE DEPARTMENT, Location: NEW YORK, NY 10038, Service: PW, Eligibility: POLICE DEPARTMENT PROVIDING SAFETY, PROTECTION OF LIFE AND PROPERTY, Status: A\
