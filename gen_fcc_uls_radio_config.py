@@ -20,8 +20,7 @@ csv.field_size_limit(sys.maxsize)
 # Constants
 SELF_DESC = 'FCC ULS Database Loader, Frequency Search, and Radio Config Generator'
 BASE_URL = 'https://data.fcc.gov/download/pub/uls/complete/'
-#DATA_DIR_PREFIX = os.getcwd()
-DATA_DIR_PREFIX = '/home/dexter/Downloads'
+DATA_DIR_PREFIX = os.getcwd()
 DATA_DIR = DATA_DIR_PREFIX + '/fcc_uls_data'
 DB_FILE = DATA_DIR + '/fcc_uls.db'
 DEFAULT_CHAN_NAME_SUFFIX = 'Q'
