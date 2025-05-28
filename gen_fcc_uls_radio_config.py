@@ -23,6 +23,13 @@ BASE_URL = 'https://data.fcc.gov/download/pub/uls/complete/'
 DATA_DIR_PREFIX = os.getcwd()
 DATA_DIR = DATA_DIR_PREFIX + '/fcc_uls_data'
 DB_FILE = DATA_DIR + '/fcc_uls.db'
+DEFAULT_CHAN_NAME_SUFFIX = 'Q'
+DEFAULT_CHAN_NAME_MAX_LEN = 99
+#EXCLUDED_CHAN_NAME_WORDS = {
+#    "IS", "THE", "WHICH", "ENTITY", "APPLICANT", "SPECIFIC", "RADIOS",
+#    "WILL", "BE", "USED", "FOR", "OF", "LICENSE", "LICENSEE", "PROVIDING"
+#}
+EXCLUDED_CHAN_NAME_WORDS = {}
 SUPPORTED_RADIOS = {
     'tdh8': {
         'chan_name_max_len': 7,
@@ -51,18 +58,11 @@ SUPPORTED_ZIPFILES = {
     'l_LMcomm.zip',
     'l_micro.zip'
 }
-DEFAULT_CHAN_NAME_SUFFIX = 'Q'
-DEFAULT_CHAN_NAME_MAX_LEN = 99
-#EXCLUDED_CHAN_NAME_WORDS = {
-#    "IS", "THE", "WHICH", "ENTITY", "APPLICANT", "SPECIFIC", "RADIOS",
-#    "WILL", "BE", "USED", "FOR", "OF", "LICENSE", "LICENSEE", "PROVIDING"
-#}
-EXCLUDED_CHAN_NAME_WORDS = {}
 
 def gen_radio_chan_name(entity, eligibility, seen, prefix_src='city', prefix_str=None, suffix_src='auto', suffix_str=None, max_length=999):
     # Step 1: Determine prefix
     if prefix_src.lower() == 'city':
-        words = prefix_str.upper().split()  # fallback if city is not passed
+        words = prefix_str.upper().split()
 
         if len(words) == 1:
             prefix_str = words[0][:2]
@@ -93,6 +93,8 @@ def gen_radio_chan_name(entity, eligibility, seen, prefix_src='city', prefix_str
             suffix_str = "FEMS"
         elif "SWAT" in src_txt or "S.W.A.T" in src_txt:
             suffix_str = "SWAT"
+        elif "TRANSIT AUTHORITY" in src_txt:
+            suffix_str = "TA"
         else:
             for word in re.split(r'\W+', entity.upper()):
                 if verbose > 1:
@@ -126,17 +128,33 @@ def gen_radio_chan_name(entity, eligibility, seen, prefix_src='city', prefix_str
 
     base = (re.sub(r'[^A-Z0-9]', '', prefix_str.upper() + suffix_str.upper()))[:max_length]
 
-    # Step 5: Always generate suffixed variant starting with 1
-    count = seen.get(base, 0) + 1
-    seen[base] = count
-    suffix_count_str = str(count)
-    trimmed = base[:max_length - len(suffix_count_str)]
-    candidate = trimmed + suffix_count_str
+    # Step 5: Only append a number if duplicate is found
+    if base not in seen:
+        seen[base] = {'count': 1, 'assigned': [base]}
+        return base  # first use, no suffix
+
+    entry = seen[base]
+    entry['count'] += 1
+    suffix = str(entry['count'])
+
+    # On the second use, retroactively rename the first one
+    if entry['count'] == 2:
+        first = entry['assigned'][0]
+        new_first = first[:max_length - 1] + '1'
+        entry['assigned'][0] = new_first  # Update stored name
+
+        if verbose > 1:
+            print(f"CHANNEL NAME Retroactively rename first instance : {first} → {new_first}")
+
+    trimmed = base[:max_length - len(suffix)]
+    new_name = trimmed + suffix
+    entry['assigned'].append(new_name)
 
     if verbose > 1:
-        print(f"CHANNEL NAME GENERATED : {candidate}")
+      print(f"CHANNEL NAME GENERATED : {new_name}")
 
-    return candidate
+    return new_name
+
 
 def gen_radio_conf(radio, results, chan_offset=1, chan_name_prefix_src='city', chan_name_suffix_src='auto'):
     if radio not in SUPPORTED_RADIOS:
@@ -151,15 +169,22 @@ def gen_radio_conf(radio, results, chan_offset=1, chan_name_prefix_src='city', c
             writer = csv.writer(csvfile)
             writer.writerow(radio_conf_vars.get('csv_headers'))
 
-            seen_names = {}
+            seen_names = {
+                'base_name': {
+                    'count': 1,
+                    'assigned': ['base_name']  # list of already assigned names based on this base
+                }
+            }
 
-            if (chan_name_prefix_src != 'city' and chan_name_prefix_src != 'callsign'):
+            chan_name_prefix_str = ''
+
+            if chan_name_prefix_src not in ['city', 'callsign']:
                 chan_name_prefix_str = chan_name_prefix_src
                 chan_name_prefix_src = 'custom'            
 
             chan_name_suffix_str = ''
 
-            if (chan_name_suffix_src != 'auto' and chan_name_prefix_src != 'freq'):
+            if chan_name_suffix_src not in ['auto', 'freq']:                
                 chan_name_suffix_str = chan_name_suffix_src
                 chan_name_suffix_src = 'custom'
 
