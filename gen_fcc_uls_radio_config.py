@@ -20,7 +20,8 @@ csv.field_size_limit(sys.maxsize)
 # Constants
 SELF_DESC = 'FCC ULS Database Loader, Frequency Search, and Radio Config Generator'
 BASE_URL = 'https://data.fcc.gov/download/pub/uls/complete/'
-DATA_DIR_PREFIX = os.getcwd()
+#DATA_DIR_PREFIX = os.getcwd()
+DATA_DIR_PREFIX = '/home/dexter/Downloads'
 DATA_DIR = DATA_DIR_PREFIX + '/fcc_uls_data'
 DB_FILE = DATA_DIR + '/fcc_uls.db'
 DEFAULT_CHAN_NAME_SUFFIX = 'Q'
@@ -128,33 +129,31 @@ def gen_radio_chan_name(entity, eligibility, seen, prefix_src='city', prefix_str
 
     base = (re.sub(r'[^A-Z0-9]', '', prefix_str.upper() + suffix_str.upper()))[:max_length]
 
-    # Step 5: Only append a number if duplicate is found
+   # Step 5: Only append a number if duplicate is found
     if base not in seen:
-        seen[base] = {'count': 1, 'assigned': [base]}
-        return base  # first use, no suffix
+        seen[base] = {'count': 1, 'assigned': [(base, len(seen))]}
+        return base, None, None  # no retroactive update needed
 
     entry = seen[base]
     entry['count'] += 1
     suffix = str(entry['count'])
 
-    # On the second use, retroactively rename the first one
-    if entry['count'] == 2:
-        first = entry['assigned'][0]
-        new_first = first[:max_length - 1] + '1'
-        entry['assigned'][0] = new_first  # Update stored name
+    # On second use, retroactively rename the first one
+    original_idx = None
+    new_first = None
 
-        if verbose > 1:
-            print(f"CHANNEL NAME Retroactively rename first instance : {first} → {new_first}")
+    if entry['count'] == 2:
+        original_name, original_idx = entry['assigned'][0]
+        new_first = original_name[:max_length - 1] + '1'
+        entry['assigned'][0] = (new_first, original_idx)
+        if verbose > 0:
+            print(f"CHANNEL NAME Retroactively rename first instance : {original_name} → {new_first}")
 
     trimmed = base[:max_length - len(suffix)]
     new_name = trimmed + suffix
-    entry['assigned'].append(new_name)
+    entry['assigned'].append((new_name, len(seen)))
 
-    if verbose > 1:
-      print(f"CHANNEL NAME GENERATED : {new_name}")
-
-    return new_name
-
+    return new_name, original_idx, new_first
 
 def gen_radio_conf(radio, results, chan_offset=1, chan_name_prefix_src='city', chan_name_suffix_src='auto'):
     if radio not in SUPPORTED_RADIOS:
@@ -169,13 +168,6 @@ def gen_radio_conf(radio, results, chan_offset=1, chan_name_prefix_src='city', c
             writer = csv.writer(csvfile)
             writer.writerow(radio_conf_vars.get('csv_headers'))
 
-            seen_names = {
-                'base_name': {
-                    'count': 1,
-                    'assigned': ['base_name']  # list of already assigned names based on this base
-                }
-            }
-
             chan_name_prefix_str = ''
 
             if chan_name_prefix_src not in ['city', 'callsign']:
@@ -188,6 +180,9 @@ def gen_radio_conf(radio, results, chan_offset=1, chan_name_prefix_src='city', c
                 chan_name_suffix_str = chan_name_suffix_src
                 chan_name_suffix_src = 'custom'
 
+            seen_names = {}       
+            formatted_rows = []
+
             for idx, row in enumerate(results, start=chan_offset):
                 freq, call_sign, entity, city, state, zipc, service, eligibility, status = row
 
@@ -199,16 +194,29 @@ def gen_radio_conf(radio, results, chan_offset=1, chan_name_prefix_src='city', c
                 if chan_name_suffix_src == 'freq':
                     chan_name_suffix_str = freq
 
-                name = gen_radio_chan_name(entity, eligibility, seen_names, chan_name_prefix_src, chan_name_prefix_str, chan_name_suffix_src, chan_name_suffix_str, radio_conf_vars.get('chan_name_max_len', DEFAULT_CHAN_NAME_MAX_LEN))
+                # Generate name and capture potential retroactive rename
+                name, retro_idx, retro_name = gen_radio_chan_name(
+                    entity, eligibility, seen_names,
+                    chan_name_prefix_src, chan_name_prefix_str,
+                    chan_name_suffix_src, chan_name_suffix_str,
+                    radio_conf_vars.get('chan_name_max_len', DEFAULT_CHAN_NAME_MAX_LEN)
+                )
 
                 formatted_row = radio_conf_vars.get('csv_default_row').copy()
                 formatted_row[0] = str(idx)
-                formatted_row[1] = name 
+                formatted_row[1] = name
                 formatted_row[2] = f"{float(freq):.5f}"
 
-                writer.writerow(formatted_row)
+                formatted_rows.append(formatted_row)
 
-        print(f"\nCSV file written: {csv_filename}")
+                # Retroactively rename earlier assigned name in list
+                if retro_idx is not None:
+                    formatted_rows[retro_idx][1] = retro_name
+
+            for row in formatted_rows:
+                writer.writerow(row)
+
+        print(f"\nCSV file written: {csv_filename}")              
 
 def download_with_progress(url, filename):
     print(f"Downloading: {url}")
