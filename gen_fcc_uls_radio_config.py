@@ -466,7 +466,7 @@ def main():
     cs_arg_help_msg = f"Method used to generate channel name suffixes : auto (Default. Obtained dynamically based on keywords in the entity and eligibility fields), freq, or a custom string. Length will be trimmed to the max length for the model radio specified, unless overriden with --channel-max"
  
     parser.add_argument('-cs', '--channel-suffix', default='auto', help=cs_arg_help_msg)
-    parser.add_argument('-cm', '--channel-max', type=int, help="Override the default maximum length of channel names, this has no effect if both --chanel-prefix and --channel-suffix are set to auto, which they are by default")
+    parser.add_argument('-cm', '--channel-max', type=int, help="Override the default maximum length of channel names, this has no effect if both --channel-prefix and --channel-suffix are set to auto, which they are by default")
     parser.add_argument('-z', '--zip', help="ZIP code(s) to search, comma-separated")
     parser.add_argument('-c', '--city', help="City to search")
     parser.add_argument('--state', help="State abbreviation to search (e.g., NY, CA)")    
