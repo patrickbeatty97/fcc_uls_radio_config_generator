@@ -30,14 +30,14 @@ USAGE
 -----
     gen_fcc_uls_radio_config.py --help
 
-Download the FCC ULS database dump zip files specified, load them into the database, and generate a CSV file of frequencies from NYC for the PW service code (Public Works - Police, Fire, EMS, etc) : \
+Download the FCC ULS database dump zip files specified, load them into the database, and generate a CSV file of frequencies from NYC for the PW service code (Public Works - Police, Fire, EMS, etc) :
 
     gen_fcc_uls_radio_config.py -c "New York" -s PW -zf l_LMcomm.zip,l_LMpriv.zip,l_LMbcast.zip,l_coast.zip
 
 Example stdout generic result lines (not from the CSV file generated) :
 
-Freq: 485.78750000 MHz, Call Sign: WQX1234, Entity: NEW YORK CITY TRANSIT AUTHORITY, City/State/ZIP/County: NEW YORK/NY/10004/BRONX, Service: PW, Eligibility: APPLICANT IS THE NEW YORK CITY TRANSIT AUTHORITY WHICH IS A GOVERNMENTAL ENTITY CHARGED WITH SPECIFIC DUTIES. RADIOS WILL BE USED FOR OFFICIAL ACTIVITIES OF THE LICENSEE., Status: A
-Freq: 485.81250000 MHz, Call Sign: WQX4321, Entity: NEW YORK CITY POLICE DEPARTMENT, City/State/ZIP/County: NEW YORK/NY/10038/RICHMOND, Service: PW, Eligibility: POLICE DEPARTMENT PROVIDING SAFETY AND PROTECTION OF LIFE AND PROPERTY, Status: A
+Freq: 485.78750000 MHz, Call Sign: WQX1234, Entity: NEW YORK CITY TRANSIT AUTHORITY, City/State/ZIP/County: NEW YORK/NY/10004/BRONX, Service: PW, Eligibility: APPLICANT IS THE NEW YORK CITY TRANSIT AUTHORITY WHICH IS A GOVERNMENTAL ENTITY CHARGED WITH SPECIFIC DUTIES. RADIOS WILL BE USED FOR OFFICIAL ACTIVITIES OF THE LICENSEE., Status: A\
+Freq: 485.81250000 MHz, Call Sign: WQX4321, Entity: NEW YORK CITY POLICE DEPARTMENT, City/State/ZIP/County: NEW YORK/NY/10038/RICHMOND, Service: PW, Eligibility: POLICE DEPARTMENT PROVIDING SAFETY AND PROTECTION OF LIFE AND PROPERTY, Status: A\
 Freq: 485.83750000 MHz, Call Sign: WQXX999, Entity: NEW YORK CITY POLICE DEPARTMENT, City/State/ZIP/County: NEW YORK/NY/10038/None, Service: PW, Eligibility: POLICE DEPARTMENT PROVIDING SAFETY, PROTECTION OF LIFE AND PROPERTY., Status: A
 
 INSTALLING
