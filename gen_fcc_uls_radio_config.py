@@ -1,51 +1,29 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 
+import argparse
+import csv
+import glob
 import os
 import re
-import sys
-import csv
 import shutil
-import zipfile
 import sqlite3
-import argparse
-import requests
-from tqdm import tqdm
-import glob
-from bs4 import BeautifulSoup
+import sys
+import zipfile
 from datetime import datetime
+
+import requests
+from bs4 import BeautifulSoup
+from tqdm import tqdm
 
 verbose = 0
 csv.field_size_limit(sys.maxsize)
 
-# Constants
 SELF_DESC = 'FCC ULS Database Loader, Frequency Search, and Radio Config Generator'
 BASE_URL = 'https://data.fcc.gov/download/pub/uls/complete/'
 DATA_DIR_PREFIX = os.getcwd()
 DATA_DIR = DATA_DIR_PREFIX + '/fcc_uls_data'
 DB_FILE = DATA_DIR + '/fcc_uls.db'
-DEFAULT_CHAN_NAME_SUFFIX = 'Q'
-DEFAULT_CHAN_NAME_MAX_LEN = 99
-#EXCLUDED_CHAN_NAME_WORDS = {
-#    "IS", "THE", "WHICH", "ENTITY", "APPLICANT", "SPECIFIC", "RADIOS",
-#    "WILL", "BE", "USED", "FOR", "OF", "LICENSE", "LICENSEE", "PROVIDING"
-#}
-EXCLUDED_CHAN_NAME_WORDS = {}
-SUPPORTED_RADIOS = {
-    'tdh8': {
-        'chan_name_max_len': 7,
-        'csv_headers': [
-            "Location", "Name", "Frequency", "Duplex", "Offset", "Tone", "rToneFreq", "cToneFreq",
-            "DtcsCode", "DtcsPolarity", "RxDtcsCode", "CrossMode", "Mode", "TStep", "Skip",
-            "Power", "Comment", "URCALL", "RPT1CALL", "RPT2CALL", "DVCODE"
-        ],
-        'csv_default_row': [
-            "", "", "", "", "0.00000", "", "88.5", "88.5", "023", "NN", "023", "Tone->Tone",
-            "FM", "5.0", "", "8.0W", "", "", "", "", ""
-        ]
-    }
-}
-CSV_FILE_PREFIX = ''
-CSV_FILE_SUFFIX = '_frequencies-' + datetime.today().strftime('%Y%m%d%H%M%S') + '.csv'
+DAT_FILES = [('EN.dat', 'EN'), ('HD.dat', 'HD'), ('EM.dat', 'EM'), ('LM.dat', 'LM'), ('LO.dat', 'LO')]
 ZIPS_LOADED_TABLE_NAME = 'loaded_zips'
 DEFAULT_ZIPFILES = ['l_LMpriv.zip']
 SUPPORTED_ZIPFILES = {
@@ -58,10 +36,56 @@ SUPPORTED_ZIPFILES = {
     'l_LMcomm.zip',
     'l_micro.zip'
 }
+DEFAULT_CHAN_NAME_SUFFIX_CUTOFF = 3
+DEFAULT_CHAN_NAME_SUFFIX_FALLBACK = 'Q'
+DEFAULT_CHAN_NAME_MAX_LEN = 7
+#EXCLUDED_CHAN_NAME_WORDS = {
+#    "IS", "THE", "WHICH", "ENTITY", "APPLICANT", "SPECIFIC", "RADIOS",
+#    "WILL", "BE", "USED", "FOR", "OF", "LICENSE", "LICENSEE", "PROVIDING"
+#}
+EXCLUDED_CHAN_NAME_WORDS = {}
+SUPPORTED_RADIOS = {
+    'generic': {
+        'chan_name_max_len': 7,
+        'csv_headers': [
+            "Location", "Name", "Frequency", "Duplex", "Offset", "Tone", "rToneFreq", "cToneFreq",
+            "DtcsCode", "DtcsPolarity", "RxDtcsCode", "CrossMode", "Mode", "TStep", "Skip",
+            "Power", "Comment", "URCALL", "RPT1CALL", "RPT2CALL", "DVCODE"
+        ],
+        'csv_default_row': [
+            "", "", "", "", "0.00000", "", "88.5", "88.5", "023", "NN", "023", "Tone->Tone",
+            "FM", "5.0", "", "8.0W", "", "", "", "", ""
+        ]
+    }
+}
+CSV_FILE_PREFIX = 'radio_frequencies_'
+CSV_FILE_SUFFIX = datetime.today().strftime('%Y%m%d%H%M%S') + '.csv'
+VALID_US_STATES = {
+    'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA',
+    'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD',
+    'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
+    'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC',
+    'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY',
+    'DC', 'PR', 'GU', 'VI', 'AS', 'MP'
+}
 
-def gen_radio_chan_name(entity, eligibility, seen, prefix_src='city', prefix_str=None, suffix_src='auto', suffix_str=None, max_length=999):
-    # Step 1: Determine prefix
-    if prefix_src.lower() == 'city':
+def abbreviate_county(county):
+    str = county
+    words = county.split()
+
+    if len(words) == 1:
+        str = words[0][:1]
+    elif len(words) >= 2:
+        str = words[0][0] + words[1][0]
+
+    return str + 'C'
+
+def gen_radio_chan_name(entity, eligibility, state, county, seen,
+                        prefix_src='auto', prefix_str=None,
+                        suffix_src='auto', suffix_str=None,
+                        max_length=999, current_idx=None):
+
+    if prefix_src.lower() in ['auto', 'city']:
         words = prefix_str.upper().split()
 
         if len(words) == 1:
@@ -69,75 +93,86 @@ def gen_radio_chan_name(entity, eligibility, seen, prefix_src='city', prefix_str
         elif len(words) == 2:
             prefix_str = words[0][0] + words[1][0]
         else:
-            prefix_str= words[0][0] + words[1][0] + + words[2][0]
+            prefix_str = words[0][0] + words[1][0] + words[2][0]
 
-        #prefix = prefix.ljust(2, 'X')
-
-    # Step 2: Merge and normalize source text
     src_txt = f"{entity} {eligibility}".upper()
 
     if verbose > 1:
         print(f"CHANNEL NAME TEXT SOURCE : {src_txt}")
 
-    # Step 3: Determine suffix
     if suffix_src.lower() == 'auto':
         if "POLICE" in src_txt and "STATE" in src_txt:
             suffix_str = "SPD"
+
+            if prefix_src.lower() == 'auto':
+                prefix_str = state
         elif "POLICE" in src_txt and any(k in src_txt for k in ["CAMPUS", "UNIVERSITY", "COLLEGE"]):
-            suffix_str = "UNVPD"
+            suffix_str = "UNPD"
         elif "POLICE" in src_txt:
             suffix_str = "PD"
+        elif "HIGHWAY PATROL" in src_txt:
+            suffix_str = 'HP'
+
+            if prefix_src.lower() == 'auto':
+                prefix_str = state
         elif "SHERIFF" in src_txt:
-            suffix_str = "SHRF"
-        elif "FIRE" in src_txt or "EMERGENCY" in src_txt:
+            suffix_str = "SHF"
+
+            if prefix_src.lower() == 'auto' and county:
+                prefix_str = ""
+                suffix_str = abbreviate_county(county) + suffix_str
+        elif "FIRE" in src_txt and "EMERGENCY" in src_txt and "NON EMERGENCY" not in src_txt:
             suffix_str = "FEMS"
+
+            if prefix_src.lower() == 'auto' and county:
+                prefix_str = ""
+                suffix_str = abbreviate_county(county) + suffix_str
+        elif "EMERGENCY" in src_txt and "NON EMERGENCY" not in src_txt:
+            suffix_str = "EMS"
+
+            if prefix_src.lower() == 'auto' and county:
+                prefix_str = ""
+                suffix_str = abbreviate_county(county) + suffix_str
+        elif "FIRE" in src_txt and "DEPARTMENT" in src_txt:
+            suffix_str = "FD"
+        elif "FIRE" in src_txt and "DISTRICT" in src_txt:
+            suffix_str = "FDT"
         elif "SWAT" in src_txt or "S.W.A.T" in src_txt:
             suffix_str = "SWAT"
         elif "TRANSIT AUTHORITY" in src_txt:
             suffix_str = "TA"
-        else:
-            for word in re.split(r'\W+', entity.upper()):
-                if verbose > 1:
-                    print(f"CHANNEL NAME AUTO SUFFIX ENTITY WORD : {word}")
+        elif "DEPARTMENT OF TRANSPORTATION" in src_txt:
+            suffix_str = "DOT"
 
-            # fallback: first char of first 5 non-excluded words in entity
+            if prefix_src.lower() == 'auto':
+                prefix_str = state
+        elif "PORT AUTHORITY" in src_txt:
+            suffix_str = "PA"                
+        elif "PARKS AND RECREATION" in src_txt:
+            suffix_str = "PAR"
+        else:
             suffix_str = ''.join(
                 word[0] for word in re.split(r'\W+', entity.upper())
-                if word and word not in EXCLUDED_CHAN_NAME_WORDS            
-            )[:5]
-
+                if word and word not in EXCLUDED_CHAN_NAME_WORDS
+            )[:DEFAULT_CHAN_NAME_SUFFIX_CUTOFF]
             if not suffix_str:
-                suffix_str = DEFAULT_CHAN_NAME_SUFFIX   
-
-            # Step 4: Clean remaining text and trim to fit
-            #remaining_len = max_length - len(prefix + suffix_str)
-
-            #if remaining_len > 0:
-            #    src_clean = re.sub(r'[^A-Z0-9]', '', src_txt)
-            #
-            #    if verbose > 1:
-            #        print(f"CHANNEL NAME AUTO SUFFIX TEXT SOURCE CLEANED : {source_clean}")
-            #
-            #    suffix_str += src_clean[:remaining_len]
-
-            #if verbose > 1:
-            #    print(f"CHANNEL NAME AUTO SUFFIX CLEANED AND TRIMMED : {suffix_str}")
+                suffix_str = DEFAULT_CHAN_NAME_SUFFIX_FALLBACK
 
         if verbose > 1:
-            print(f"CHANNEL NAME AUTO SUFFIX : {suffix_str}") 
+            print(f"CHANNEL NAME AUTO SUFFIX : {suffix_str}")
 
     base = (re.sub(r'[^A-Z0-9]', '', prefix_str.upper() + suffix_str.upper()))[:max_length]
 
-   # Step 5: Only append a number if duplicate is found
+    #Duplicate handling
     if base not in seen:
-        seen[base] = {'count': 1, 'assigned': [(base, len(seen))]}
-        return base, None, None  # no retroactive update needed
+        seen[base] = {'count': 1, 'assigned': [(base, current_idx)]}
+        return base, None, None
 
     entry = seen[base]
     entry['count'] += 1
     suffix = str(entry['count'])
 
-    # On second use, retroactively rename the first one
+    #Retroactively rename first instance on second use
     original_idx = None
     new_first = None
 
@@ -145,77 +180,79 @@ def gen_radio_chan_name(entity, eligibility, seen, prefix_src='city', prefix_str
         original_name, original_idx = entry['assigned'][0]
         new_first = original_name[:max_length - 1] + '1'
         entry['assigned'][0] = (new_first, original_idx)
-        if verbose > 0:
+
+        if verbose > 1:
             print(f"CHANNEL NAME Retroactively rename first instance : {original_name} → {new_first}")
 
     trimmed = base[:max_length - len(suffix)]
     new_name = trimmed + suffix
-    entry['assigned'].append((new_name, len(seen)))
+    entry['assigned'].append((new_name, current_idx))
 
     return new_name, original_idx, new_first
 
-def gen_radio_conf(radio, results, chan_offset=1, chan_name_prefix_src='city', chan_name_suffix_src='auto'):
+def gen_radio_conf(radio, results, chan_offset=1, chan_name_prefix_src='auto', chan_name_suffix_src='auto', chan_name_max_len=None):
+    radio = radio.lower()
+
     if radio not in SUPPORTED_RADIOS:
         raise ValueError(f"Unsupported radio model: {radio}. Supported models: {', '.join(SUPPORTED_RADIOS)}")
 
     radio_conf_vars = SUPPORTED_RADIOS[radio]
+    csv_filename = CSV_FILE_PREFIX + radio + '_' + CSV_FILE_SUFFIX
 
-    csv_filename = CSV_FILE_PREFIX + radio + CSV_FILE_SUFFIX        
+    with open(csv_filename, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(radio_conf_vars.get('csv_headers'))
 
-    if radio == 'tdh8':
-        with open(csv_filename, 'w', newline='') as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow(radio_conf_vars.get('csv_headers'))
+        chan_name_prefix_str = ''
 
-            chan_name_prefix_str = ''
+        if chan_name_prefix_src not in ['auto', 'city', 'callsign']:
+            chan_name_prefix_str = chan_name_prefix_src
+            chan_name_prefix_src = 'custom'
 
-            if chan_name_prefix_src not in ['city', 'callsign']:
-                chan_name_prefix_str = chan_name_prefix_src
-                chan_name_prefix_src = 'custom'            
+        chan_name_suffix_str = ''
 
-            chan_name_suffix_str = ''
+        if chan_name_suffix_src not in ['auto', 'freq']:
+            chan_name_suffix_str = chan_name_suffix_src
+            chan_name_suffix_src = 'custom'
 
-            if chan_name_suffix_src not in ['auto', 'freq']:                
-                chan_name_suffix_str = chan_name_suffix_src
-                chan_name_suffix_src = 'custom'
+        chan_name_max_len = chan_name_max_len or radio_conf_vars.get('chan_name_max_len', DEFAULT_CHAN_NAME_MAX_LEN)
 
-            seen_names = {}       
-            formatted_rows = []
+        seen_names = {}
+        formatted_rows = []
 
-            for idx, row in enumerate(results, start=chan_offset):
-                freq, call_sign, entity, city, state, zipc, service, eligibility, status = row
+        for idx, row in enumerate(results, start=chan_offset):
+            freq, call_sign, entity, eligibility, city, state, zipc, county, service, status = row
 
-                if chan_name_prefix_src == 'city':
-                    chan_name_prefix_str = city
-                elif chan_name_prefix_src == 'callsign':
-                    chan_name_prefix_str = call_sign
+            if chan_name_prefix_src in ['auto', 'city']:
+                chan_name_prefix_str = city
+            elif chan_name_prefix_src == 'callsign':
+                chan_name_prefix_str = call_sign
 
-                if chan_name_suffix_src == 'freq':
-                    chan_name_suffix_str = freq
+            if chan_name_suffix_src == 'freq':
+                chan_name_suffix_str = freq
 
-                # Generate name and capture potential retroactive rename
-                name, retro_idx, retro_name = gen_radio_chan_name(
-                    entity, eligibility, seen_names,
-                    chan_name_prefix_src, chan_name_prefix_str,
-                    chan_name_suffix_src, chan_name_suffix_str,
-                    radio_conf_vars.get('chan_name_max_len', DEFAULT_CHAN_NAME_MAX_LEN)
-                )
+            name, retro_idx, retro_name = gen_radio_chan_name(
+                entity, eligibility, state, county, seen_names,
+                chan_name_prefix_src, chan_name_prefix_str,
+                chan_name_suffix_src, chan_name_suffix_str,
+                chan_name_max_len,
+                current_idx=idx - chan_offset
+            )
 
-                formatted_row = radio_conf_vars.get('csv_default_row').copy()
-                formatted_row[0] = str(idx)
-                formatted_row[1] = name
-                formatted_row[2] = f"{float(freq):.5f}"
+            formatted_row = radio_conf_vars.get('csv_default_row').copy()
+            formatted_row[0] = str(idx)
+            formatted_row[1] = name
+            formatted_row[2] = f"{float(freq):.5f}"
+            formatted_rows.append(formatted_row)
 
-                formatted_rows.append(formatted_row)
+            #Retroactively rename previous row if needed
+            if retro_idx is not None and retro_name is not None:
+                formatted_rows[retro_idx][1] = retro_name
 
-                # Retroactively rename earlier assigned name in list
-                if retro_idx is not None:
-                    formatted_rows[retro_idx][1] = retro_name
+        for row in formatted_rows:
+            writer.writerow(row)
 
-            for row in formatted_rows:
-                writer.writerow(row)
-
-        print(f"\nCSV file written: {csv_filename}")              
+    print(f"\nCSV file written: {csv_filename}")
 
 def download_with_progress(url, filename):
     print(f"Downloading: {url}")
@@ -323,83 +360,76 @@ def load_dat_to_sqlite(conn, filepath, table, new_db=False):
 
     print(f"Inserted {len(rows)} rows into {table}")
 
-def search_freqs(conn, zip_codes=None, city=None, service_codes=None, status='active'):
+def search_freqs(conn, zip_codes=None, city=None, state=None, service_codes=None, status='active'):
     cursor = conn.cursor()
 
     try:
-        if not city and not zip_codes:
-            print("Error: Must provide ZIP code(s) or city.")
+        if not city and not zip_codes and not state:
+            print("Error: Must provide ZIP code(s) or city or state.")
             return
         
         if not service_codes:
             print("Error: Must provide service code(s).")
             return        
-        
-        lm_table_exists = False;
 
-        if table_exists(conn, 'LM'):
-            lm_table_exists = True;
-
-        base_query = '''
+        query = '''
         SELECT
             EM.col_7 AS frequency_assigned,
-            EM.col_4 as call_sign,
-            EN.col_7 AS entity_name,
-            EN.col_16 AS city,
+            EM.col_4 AS call_sign,
+            TRIM(UPPER(EN.col_7)) AS entity_name,
+            TRIM(UPPER(LM.col_6)) AS eligibility,
+            TRIM(UPPER(EN.col_16)) AS city,
             EN.col_17 AS state,
             EN.col_18 AS zip_code,
-            HD.col_6 AS service_code,'''
-        
-        if lm_table_exists:
-            base_query += '\n            LM.col_6 AS eligibility,'
-        
-        # base_query += '''
-        #     HD.col_5 as status
+            TRIM(UPPER(LO.col_13)) AS county,
+            HD.col_6 AS service_code,
+            HD.col_5 AS status'''
+
+        # query += '''
         # FROM HD
         # JOIN EM ON HD.col_1 = EM.col_1
-        # JOIN EN ON HD.col_1 = EN.col_1'''
 
-        base_query += '''
-            HD.col_5 as status       
+        query += '''      
         FROM EM
         JOIN HD ON EM.col_1 = HD.col_1
-        JOIN EN ON HD.col_1 = EN.col_1'''
-        
-        if lm_table_exists:
-            base_query += '\n        LEFT JOIN LM ON HD.col_1 = LM.col_1'
+        JOIN EN ON HD.col_1 = EN.col_1
+        LEFT JOIN LM ON HD.col_1 = LM.col_1
+        LEFT JOIN LO ON HD.col_1 = LO.col_1 AND LO.col_12 = EN.col_16'''
 
-        base_query += '''
-        WHERE HD.col_6 IN ({})
+        query += '''
+        WHERE service_code IN ({})
         '''.format(','.join(['?'] * len(service_codes)))
 
         params = service_codes
 
+        if city:
+            query += " AND city = ?"
+            params.append(city.upper().strip())
+
         if zip_codes:
             placeholders = ','.join('?' for _ in zip_codes)
-            base_query += f' AND EN.col_18 IN ({placeholders})'
+            query += f' AND zip_code IN ({placeholders})'
             params.extend(zip_codes)
-        if city:
-            base_query += ' AND EN.col_16 = ?'
-            params.append(city.upper())
+
+        if state:
+            query += " AND state = ?"
+            params.append(state.upper())
 
         if status.lower() == 'active':
-            base_query += " AND HD.col_5 = 'A'"
+            query += " AND status = 'A'"
         elif status.lower() == 'expired':
-            base_query += " AND HD.col_5 = 'E'"
-
-        #This causes various expected frequencies to be missing from the results
-        #base_query += ' GROUP BY EM.col_1'
+            query += " AND status = 'E'"
 
         #Not sure of the ramifications of what results this causes to be missing
         #The intent is to filter duplicate frequencies
-        base_query += ' GROUP BY frequency_assigned'
+        query += " GROUP BY frequency_assigned"
 
-        base_query += ' ORDER BY frequency_assigned ASC'
+        query += " ORDER BY frequency_assigned ASC"
 
         if verbose:
-            debug_sql(base_query, params)
+            debug_sql(query, params)
 
-        cursor.execute(base_query, tuple(params))
+        cursor.execute(query, tuple(params))
         results = cursor.fetchall()
 
         if not results:
@@ -428,15 +458,20 @@ def list_available_zip_files():
 
 def main():
     parser = argparse.ArgumentParser(description=SELF_DESC)
-    parser.add_argument('-lr', '--list-radios', action='store_true', help="List supported radio models")
-    parser.add_argument('-r', '--radio', choices=SUPPORTED_RADIOS.keys(), help="Output result formatted for a specific radio (currently only: tdh8)")
+    parser.add_argument('-lr', '--list-radios', action='store_true', help="List supported radio models (currently only : generic, for possible future use)")
+    parser.add_argument('-r', '--radio', default='generic', help="Output results formatted for specified radio model (currently only : generic, works with CHIRP and Odmaster, confirmed on TIDRADIO TD-H8)")
     parser.add_argument('-co', '--channel-offset', type=int, default=1, help="Starting number for channel field in CSV output. Default: 1")
-    parser.add_argument('-cp', '--channel-prefix', default='city', help="Method used to generate channel name prefixes : city (Default. The first two characters of the city name if its one word, or the first character of each word in the city name e.g, NY), callsign, or a custom string. The channel name will be automatically trimmed to the max length for the model radio specified")
-    parser.add_argument('-cs', '--channel-suffix', default='auto', help="Method used to generate channel name suffixes : auto (Default. The suffix is obtained dynamically based on keywords in the entity and eligibility fields, or the first character from the first 5 words in the entity field), freq, or a custom string. The channel name will be automatically trimmed to the max length for the model radio specified")
+    parser.add_argument('-cp', '--channel-prefix', default='auto', help="Method used to generate channel name prefixes : auto (Default. Obtained dynamically based on keywords in the entity and eligibility fields), city (The first two characters of the city name if its one word, or the first character of each word in the city name e.g, NY), callsign, or a custom string. Length will be trimmed to max length for the model radio specified, unless overriden with --channel-max")
+ 
+    cs_arg_help_msg = f"Method used to generate channel name suffixes : auto (Default. Obtained dynamically based on keywords in the entity and eligibility fields), freq, or a custom string. Length will be trimmed to the max length for the model radio specified, unless overriden with --channel-max"
+ 
+    parser.add_argument('-cs', '--channel-suffix', default='auto', help=cs_arg_help_msg)
+    parser.add_argument('-cm', '--channel-max', type=int, help="Override the default maximum length of channel names, this has no effect if both --chanel-prefix and --channel-suffix are set to auto, which they are by default")
     parser.add_argument('-z', '--zip', help="ZIP code(s) to search, comma-separated")
     parser.add_argument('-c', '--city', help="City to search")
+    parser.add_argument('--state', help="State abbreviation to search (e.g., NY, CA)")    
     parser.add_argument('-ls', '--list-services', action='store_true', help="List available radio service code(s) to search")
-    parser.add_argument('-s', '--service', help="Radio service code(s) to search, comma-separated (e.g., PW,IG)")
+    parser.add_argument('-s', '--service', help="Radio service code(s) to search, comma-separated (e.g., PW,AF)")
     parser.add_argument('--status', choices=['active', 'expired', 'any'], default='active', help="License status filter. Default : active")
     parser.add_argument('-lz', '--list-zipfiles', action='store_true', help="List available ZIP files to download from FCC")
 
@@ -445,7 +480,7 @@ def main():
     parser.add_argument('-zf', '--zipfiles', help=zf_arg_help_msg)
 
     #parser.add_argument('-cc', '--clear-cache', action='store_true', help="Clear cached ZIP files and SQL tables. Default is to use cached data if it exist")
-    parser.add_argument('-cc', '--clear-cache', action='store_true', help="Clear database, re-download ZIP files, and load into into new database. Default is to use cached data if it exist")
+    parser.add_argument('-cc', '--clear-cache', action='store_true', help="Clear database, re-download ZIP files, and load into new database. Default : use cached data if it exist")
     parser.add_argument('-v', '--verbose', action='count', default=0,  help="Increase output verbosity (e.g., -v, -vv, -vvv)")
  
     args = parser.parse_args()
@@ -453,6 +488,12 @@ def main():
     if args.verbose:
         global verbose
         verbose = args.verbose
+
+    if args.radio and args.radio.lower() not in SUPPORTED_RADIOS:
+        print(f"Error: Unsupported radio model '{args.radio}'.")
+        print("Supported radio models:")
+        print(", ".join(SUPPORTED_RADIOS))
+        sys.exit(1)
 
     if args.list_radios:
         print("Supported radio models:")
@@ -473,17 +514,31 @@ def main():
         print(", ".join(sorted(SUPPORTED_ZIPFILES)))        
         sys.exit(0)
 
-    if not args.zip and not args.city:
-        parser.error("You must specify either --zip or --city.")
+    if not (args.zip or args.city or args.state):
+        parser.error("You must specify at least one of --zip, --city, or --state.")
 
     zip_codes = [z.strip() for z in args.zip.split(',')] if args.zip else None
+
+    #Validate ZIP(s) at least numeric?
+
+    if args.state:
+        if args.state.upper() not in VALID_US_STATES:
+            print(f"Error: '{args.state}' is not a valid US state abbreviation.")
+            sys.exit(1)
 
     if not args.service:
         parser.error("You must specify a minimum of one service code with --service (e.g., PW,IG). Use -ls, --list-services to list available service codes")   
 
-    service_codes = [s.strip().upper() for s in args.service.split(',')] if args.service else None
+    service_codes = [s.strip().upper().strip() for s in args.service.split(',')] if args.service else None
 
-    zip_filenames = [z.strip() for z in args.zipfiles.split(',')] if args.zipfiles else DEFAULT_ZIPFILES
+    zip_filenames = DEFAULT_ZIPFILES.copy()
+
+    if args.zipfiles:
+        additional_zips = [z.strip() for z in args.zipfiles.split(',')]
+
+        for z in additional_zips:
+            if z not in zip_filenames:
+                zip_filenames.append(z)
 
     invalid = [z for z in zip_filenames if z not in SUPPORTED_ZIPFILES]
 
@@ -493,6 +548,12 @@ def main():
         print("Supported ZIP files are:")
         print(", ".join(sorted(SUPPORTED_ZIPFILES)))
         sys.exit(1)
+
+    if args.channel_max is not None and args.channel_max <= 0:
+        print("Error: --channel-max must be a positive integer.")
+        sys.exit(1)
+
+    #End arguments validation
 
     os.makedirs(DATA_DIR, exist_ok=True)
 
@@ -541,9 +602,7 @@ def main():
         #else:
             #print(f"{extract_dir} directory exists. Skipping extraction. Use -cc / --clear-cache to re-extract ZIP files")
 
-            dat_files = [('EN.dat', 'EN'), ('HD.dat', 'HD'), ('EM.dat', 'EM'), ('LM.dat', 'LM')]
-
-            for fname, table in dat_files:
+            for fname, table in DAT_FILES:
                 fpath = find_file(extract_dir, fname)
                 if fpath:
                     load_dat_to_sqlite(conn, fpath, table, new_zip_db)
@@ -567,6 +626,7 @@ def main():
         conn,
         zip_codes=zip_codes,
         city=args.city,
+        state=args.state,       
         service_codes=service_codes,
         status=args.status
     )
@@ -579,12 +639,19 @@ def main():
         print(f"\nResults for {label} and Service Codes {', '.join(service_codes)} (Status: {args.status}):")
 
         for row in search_results:
-            freq, call_sign, name, city, state, zipc, service, eligibility, status = row
-            print(f"Freq: {freq} MHz, Call Sign: {call_sign}, Entity: {name}, Location: {city}, {state} {zipc}, Service: {service}, Eligibility: {eligibility}, Status: {status}")
+            freq, call_sign, name, eligibility, city, state, zipc, county, service, status = row
+            print(f"Freq: {freq} MHz, Call Sign: {call_sign}, Entity: {name}, City/State/ZIP/County: {city}/{state}/{zipc}/{county}, Service: {service}, Eligibility: {eligibility}, Status: {status}")
 
         if args.radio:
             try:
-                gen_radio_conf(args.radio, search_results, args.channel_offset, args.channel_prefix, args.channel_suffix)
+                gen_radio_conf(
+                    args.radio,
+                    search_results,
+                    chan_offset=args.channel_offset,
+                    chan_name_prefix_src=args.channel_prefix,
+                    chan_name_suffix_src=args.channel_suffix,
+                    chan_name_max_len=args.channel_max
+                )
             except ValueError as e:
                 print(f"Error: {e}")
 
