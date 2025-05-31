@@ -480,7 +480,7 @@ def main():
     parser.add_argument('-zf', '--zipfiles', help=zf_arg_help_msg)
 
     #parser.add_argument('-cc', '--clear-cache', action='store_true', help="Clear cached ZIP files and SQL tables. Default is to use cached data if it exist")
-    parser.add_argument('-cc', '--clear-cache', action='store_true', help="Clear database, re-download ZIP files, and load into new database. Default : use cached data if it exist")
+    parser.add_argument('-cc', '--clear-cache', action='store_true', help="Clear database, re-download ZIP files, and load into new database. Default : Use cached data if it exist")
     parser.add_argument('-v', '--verbose', action='count', default=0,  help="Increase output verbosity (e.g., -v, -vv, -vvv)")
  
     args = parser.parse_args()
